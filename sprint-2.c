@@ -4,7 +4,7 @@ int main(void) {
 	int x;
 
 	while (1) {
-		printf("Introduza um valor inteiro: ");
+		printf("Introduza um valor do sensor: ");
 		if (scanf("%d", &x) == 1) {
 			break;
 		}
