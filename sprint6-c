@@ -1,0 +1,173 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include <ctype.h>
+
+#define MAX_LEITURAS 20
+#define MAX_LINHA 256
+#define MAX_ID 20
+
+// Estrutura para os dados de calibração
+typedef struct {
+    char id[MAX_ID];
+    double ganho;
+    double desvio;
+} ConfigSensor;
+
+const ConfigSensor SENSORES[] = {
+    {"TEMP1", 260.0, -20.0},
+    {"TEMP2", 250.0, -15.0},
+    {"TEMP3", 240.0, -10.0}
+};
+const int NUM_SENSORES = sizeof(SENSORES) / sizeof(SENSORES[0]);
+
+// Estrutura para guardar cada leitura válida
+typedef struct {
+    char sensor[MAX_ID];
+    int instante;
+    int valor_bruto;
+    double temperatura;
+} Leitura;
+
+// Procura o sensor na tabela
+int procurar_sensor(const char *id) {
+    for (int i = 0; i < NUM_SENSORES; i++) {
+        if (strcmp(SENSORES[i].id, id) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Calcula a temperatura
+double calcular_temperatura(int idx, int valor) {
+    return (SENSORES[idx].ganho * valor) / 1023.0 + SENSORES[idx].desvio;
+}
+
+// Verifica se uma string representa um número inteiro válido
+int eh_inteiro(const char *str) {
+    if (str == NULL || *str == '\0') return 0;
+    int i = 0;
+    if (str[0] == '-' || str[0] == '+') i++;
+    if (str[i] == '\0') return 0;
+    for (; str[i] != '\0'; i++) {
+        if (!isdigit((unsigned char)str[i])) return 0;
+    }
+    return 1;
+}
+
+int main(void) {
+    Leitura leituras[MAX_LEITURAS];
+    int total_leituras = 0;
+    char linha[MAX_LINHA];
+
+    // Lê até atingir o limite de 20 leituras ou o fim do ficheiro/input
+    while (total_leituras < MAX_LEITURAS && fgets(linha, sizeof(linha), stdin) != NULL) {
+        linha[strcspn(linha, "\r\n")] = '\0';
+
+        if (strcmp(linha, "FIM") == 0) {
+            break;
+        }
+
+        // Ignorar linhas em branco
+        if (strlen(linha) == 0) {
+            continue;
+        }
+
+        char tok_sensor[MAX_ID];
+        char str_instante[64], str_valor[64], str_extra[64];
+
+        // Lê exatamente até 4 tokens para detetar se existem campos a mais (como no teste-09.txt)
+        int n = sscanf(linha, "%19s %63s %63s %63s", tok_sensor, str_instante, str_valor, str_extra);
+
+        // 1. Verificar se o sensor existe
+        int idx_sensor = procurar_sensor(tok_sensor);
+        if (idx_sensor == -1) {
+            printf("Sensor desconhecido\n");
+            continue;
+        }
+
+        // 2. Validar se tem exatamente 3 campos e se instante/valor são inteiros válidos
+        if (n != 3 || !eh_inteiro(str_instante) || !eh_inteiro(str_valor)) {
+            printf("Linha inválida\n");
+            continue;
+        }
+
+        int instante = atoi(str_instante);
+        int valor = atoi(str_valor);
+
+        // 3. Validar gama do valor bruto (0 a 1023)
+        if (valor < 0 || valor > 1023) {
+            printf("Valor fora da gama\n");
+            continue;
+        }
+
+        // 4. Calcular temperatura e validar gama (-10 °C a 190 °C)
+        double temp = calcular_temperatura(idx_sensor, valor);
+        if (temp < -10.0 || temp > 190.0) {
+            printf("Valor fora da gama\n");
+            continue;
+        }
+
+        // Registo válido
+        printf("%.2f\n", temp);
+        strcpy(leituras[total_leituras].sensor, tok_sensor);
+        leituras[total_leituras].instante = instante;
+        leituras[total_leituras].valor_bruto = valor;
+        leituras[total_leituras].temperatura = temp;
+        total_leituras++;
+    }
+
+    // Apresentar lista de leituras registadas
+    printf("\nLeituras registadas (sensor instante: valor -> temperatura):\n");
+    for (int i = 0; i < total_leituras; i++) {
+        printf("%s %d: %d -> %.2f\n",
+               leituras[i].sensor,
+               leituras[i].instante,
+               leituras[i].valor_bruto,
+               leituras[i].temperatura);
+    }
+
+    // Apresentar estatísticas por sensor
+    for (int s = 0; s < NUM_SENSORES; s++) {
+        int count = 0;
+        double soma = 0.0, min = 0.0, max = 0.0;
+
+        for (int i = 0; i < total_leituras; i++) {
+            if (strcmp(leituras[i].sensor, SENSORES[s].id) == 0) {
+                double t = leituras[i].temperatura;
+                if (count == 0) {
+                    min = max = t;
+                } else {
+                    if (t < min) min = t;
+                    if (t > max) max = t;
+                }
+                soma += t;
+                count++;
+            }
+        }
+
+        if (count > 0) {
+            double media = soma / count;
+            double soma_quadrados = 0.0;
+
+            for (int i = 0; i < total_leituras; i++) {
+                if (strcmp(leituras[i].sensor, SENSORES[s].id) == 0) {
+                    double diff = leituras[i].temperatura - media;
+                    soma_quadrados += diff * diff;
+                }
+            }
+            double desvio_padrao = sqrt(soma_quadrados / count);
+
+            printf("\nSensor %s\n", SENSORES[s].id);
+            printf("Número de valores lidos: %d\n", count);
+            printf("Temperatura mínima: %.2f\n", min);
+            printf("Temperatura máxima: %.2f\n", max);
+            printf("Temperatura média:  %.2f\n", media);
+            printf("Desvio-padrão:      %.2f\n", desvio_padrao);
+        }
+    }
+
+    return 0;
+}
